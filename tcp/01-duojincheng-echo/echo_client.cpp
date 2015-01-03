@@ -61,7 +61,7 @@ void client_service(int conn)
         len = read(conn,recvbuf,sizeof(recvbuf)); 
         if(len == 0)
         {
-            cerr << "client closed" << endl;
+            cerr << "server closed" << endl;
             break;
         }
         else if(len == -1)

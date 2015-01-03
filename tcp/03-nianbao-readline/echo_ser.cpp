@@ -13,14 +13,25 @@
 #include<string.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-
+#include <sys/wait.h>
+#include  <signal.h>
 #include "readline.h"
 
 using namespace std;
 //void err_exit(const char *);
 void server_service(int);
+
+void chld_handle(int sig)
+{
+    while(waitpid(-1,NULL,WNOHANG)>0)
+    {
+        puts("子进程退出");
+    }
+}
+
 int main()
 {
+    signal(SIGCHLD,chld_handle);
     int sock = socket(AF_INET,SOCK_STREAM,0);
     if(sock < 0 )  err_exit("socket"); 
     struct sockaddr_in ser_addr;
@@ -84,7 +95,6 @@ int main()
         }
     }
     close(sock);
-    cout << "end" << endl;
     return 0;
 }
 /*
