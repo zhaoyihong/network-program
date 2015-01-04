@@ -32,6 +32,7 @@ void chld_handle(int sig)
 int main()
 {
     signal(SIGCHLD,chld_handle);
+    signal(SIGPIPE,SIG_IGN);
     int sock = socket(AF_INET,SOCK_STREAM,0);
     if(sock < 0 )  err_exit("socket"); 
     struct sockaddr_in ser_addr;

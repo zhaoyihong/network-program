@@ -14,12 +14,14 @@
 #include <netinet/in.h>
 #include  <arpa/inet.h>
 #include "packio.h"
+#include <signal.h>
 using namespace std;
 
 void client_service(int);
 
 int main()
 {
+    signal(SIGPIPE,SIG_IGN);
     int sock = socket(AF_INET,SOCK_STREAM,0);
     if(sock < 0 )  err_exit("socket"); 
     

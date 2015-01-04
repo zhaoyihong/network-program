@@ -13,6 +13,7 @@
 #include <string.h>
 #include <netinet/in.h>
 #include  <arpa/inet.h>
+#include  <signal.h>
 #include "readline.h"
 
 using namespace std;
@@ -21,6 +22,7 @@ void client_service(int);
 
 int main()
 {
+    signal(SIGPIPE,SIG_IGN);
     int sock = socket(AF_INET,SOCK_STREAM,0);
     if(sock < 0 )  err_exit("socket"); 
     
@@ -67,4 +69,5 @@ void client_service(int conn)
         memset(&sendbuf,0,sizeof(sendbuf));
         memset(&recvbuf,0,sizeof(recvbuf));
     }
+
 }

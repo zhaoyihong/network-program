@@ -36,6 +36,8 @@ int main()
 {
     //signal(SIGCHLD,SIG_IGN);
     signal(SIGCHLD,chld_hanle);
+    signal(SIGPIPE,SIG_IGN);
+
     int sock = socket(AF_INET,SOCK_STREAM,0);
     if(sock < 0 )  err_exit("socket"); 
     struct sockaddr_in ser_addr;
