@@ -87,6 +87,7 @@ int main()
         {
             close(sock);
             server_service(conn);
+            shutdown(sock,SHUT_WR);
             close(conn);
             break;
         }
