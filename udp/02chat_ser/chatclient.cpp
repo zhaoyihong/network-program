@@ -35,9 +35,11 @@ void do_someone_login(MESSAGE &);
 void do_someone_logout(MESSAGE &);
 void do_getlist(int);
 void do_chat(MESSAGE &msg);   
+void do_public_chat(MESSAGE &msg);
+void print_usage();
+
 void parse_cmd(char *,int ,sockaddr_in *);
 bool sendmsgto(int sock,char *peername,char *msg_line);
-
 
 int main(void)
 {
@@ -150,6 +152,7 @@ void chat_client(int sock,sockaddr_in* pserver_addr)
 
    printf("commands are:\n");
    printf("send <username> <msg>\n");
+   printf("sendall <msg>\n");
    printf("list\n");
    printf("exit\n");
    printf("\n");
@@ -220,7 +223,9 @@ void chat_client(int sock,sockaddr_in* pserver_addr)
                            break;   
                        case C2C_CHAT :
                            do_chat(msg);
-                           break;   
+                           break;
+                       case S2C_PUBLIC_CHAT:
+                            do_public_chat(msg);
                        default :
                            break;
                    }
@@ -312,17 +317,25 @@ void do_getlist(int sock)
 void do_chat(MESSAGE &msg)
 {
     CHAT_MSG *p_chat = (CHAT_MSG *)msg.body;
-    printf("from user %s:%s\n",p_chat->username,p_chat->msg);
+    printf("user %s sending to you:%s\n",p_chat->username,p_chat->msg);
 }
 
+
+void do_public_chat(MESSAGE &msg)
+{
+    CHAT_MSG *p_chat = (CHAT_MSG *)msg.body;
+    printf("user %s sending to all:%s\n",p_chat->username,p_chat->msg);
+}
 
 void parse_cmd(char *cmd_line,int sock,sockaddr_in *pserver_addr)
 {
     char cmd[10] = {0};
     char *p = strchr(cmd_line,' ');
+    bool single_comand = true;
     if(p != NULL)
     {
         *p = '\0';
+        single_comand = false;
     }
    
     strcpy(cmd,cmd_line);
@@ -340,27 +353,36 @@ void parse_cmd(char *cmd_line,int sock,sockaddr_in *pserver_addr)
     }
     else if(strcmp(cmd,"send") == 0)
     {
+        if(single_comand)
+        {
+            printf("bad command\n");
+            print_usage();
+            return;    
+        }
+
         char peername[16] = {0};
         char msg_line[MSG_LEN] = {0};
 
-        while(*p++ == ' '){}
+        while(*++p == ' '){} //去除空格
         char *p2 = strchr(p,' ');
         
         if(p2 == NULL)
         {
             printf("bad command\n");
-            printf("commands are:\n");
-            printf("send <username> <msg>\n");
-            printf("list\n");
-            printf("exit\n");
-            printf("\n");
+            print_usage();
             return;
         }
 
         *p2 = '\0';
         strcpy(peername,p);
         
-        while(*p2++ == ' ') {}
+        while(*++p2 == ' '){}
+        if(*p2 == '\0')
+        {
+            printf("cannot send null message\n");
+            print_usage();
+            return;
+        }
         strcpy(msg_line,p2);
         sendmsgto(sock,peername,msg_line);
     }
@@ -374,11 +396,45 @@ void parse_cmd(char *cmd_line,int sock,sockaddr_in *pserver_addr)
             err_exit("sendto");
         }
     }
+    else if(strcmp(cmd,"sendall") == 0)
+    {
+        if(single_comand)
+        {
+            printf("bad command\n");
+            print_usage();
+            return;    
+        }
+
+        while(*++p == ' '){}
+        if(*p == '\0')
+        {
+            printf("cannot send null message\n");
+            print_usage();
+            return;
+        }
+
+        MESSAGE msg;
+        memset(&msg,0,sizeof(msg));
+        msg.cmd = htonl(C2S_PUBLIC_CHAT);
+        
+        CHAT_MSG chat_msg;
+        memset(&chat_msg,0,sizeof(chat_msg));
+        strcpy(chat_msg.username,username);
+        strcpy(chat_msg.msg,p);
+        memcpy(msg.body,&chat_msg,sizeof(chat_msg));
+        if(sendto(sock,&msg,sizeof(msg),0,(sockaddr *)pserver_addr,sizeof(*pserver_addr)) < 0 )
+        {
+            err_exit("sendto");
+        }
+
+        printf("you sending to all %s\n:",chat_msg.msg);
+    }
     else
     {
             printf("bad command\n");
             printf("commands are:\n");
             printf("send <username> <msg>\n");
+            printf("sendall <msg>\n");
             printf("list\n");
             printf("exit\n");
             printf("\n");
@@ -425,9 +481,18 @@ bool sendmsgto(int sock,char *peername,char *msg_line)
 
     memcpy(msg.body,&chat_msg,sizeof(chat_msg));
     
-    struct in_addr tmp;
-    tmp.s_addr = it->ip;
-    printf("sending message %s to user %s\n",msg_line,inet_ntoa(tmp));
+    printf("sending message %s to user %s\n",msg_line,peername);
 
     sendto(sock,&msg,sizeof(msg),0,(struct sockaddr *)&peer_addr,sizeof(peer_addr));
+}
+
+
+void print_usage()
+{
+    printf("commands are:\n");
+    printf("send <username> <msg>\n");
+    printf("list\n");
+    printf("exit\n");
+    printf("\n");
+     
 }

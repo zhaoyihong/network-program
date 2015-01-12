@@ -13,6 +13,7 @@
 #define C2S_LOGIN 0x01
 #define C2S_LOGOUT 0x02
 #define C2S_ONLINE_USER 0x03
+#define C2S_PUBLIC_CHAT 0x04
 
 
 #define MSG_LEN 512
@@ -23,9 +24,10 @@
 #define S2C_SOMEONE_LOGIN 0x03
 #define S2C_SOMEONE_LOGOUT 0x04
 #define S2C_ONLIE_USER 0x05
+#define S2C_PUBLIC_CHAT 0x06
 
 //C2C
-#define C2C_CHAT 0x06
+#define C2C_CHAT 0x07
 
 
 typedef struct message

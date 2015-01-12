@@ -29,6 +29,7 @@ void chat_ser(int sock);
 void do_login(MESSAGE msg,int sock,sockaddr_in &client_addr);
 void do_logout(MESSAGE msg,int sock);
 void do_send_list(int sock,sockaddr_in &client_addr);
+ void do_public_chat(int sock,MESSAGE& msg);
 
 int main(void)
 {
@@ -90,6 +91,8 @@ void chat_ser(int sock)
             case C2S_ONLINE_USER:
                 do_send_list(sock,client_addr);
                 break;
+            case C2S_PUBLIC_CHAT:
+                do_public_chat(sock,msg);
             default:
                 break;
         }
@@ -240,4 +243,29 @@ void do_send_list(int sock,sockaddr_in &client_addr)
 }
 
 
+ void do_public_chat(int sock,MESSAGE& msg)
+ {
+    CHAT_MSG *p_chat = (CHAT_MSG*)msg.body;
+    
+    MESSAGE reply_msg;
+    memcpy(&reply_msg,&msg,sizeof(msg));
+    reply_msg.cmd = htonl(S2C_PUBLIC_CHAT);
 
+    USER_LIST::iterator it;
+    for(it = client_list.begin(); it != client_list.end(); ++it)
+     {
+        if(strcmp(p_chat->username,it->username) == 0)
+        {
+            continue;
+        }
+    
+         sockaddr_in peer_addr;
+         memset(&peer_addr,0,sizeof(peer_addr));
+         peer_addr.sin_family = AF_INET;
+         peer_addr.sin_port = it->port;
+         peer_addr.sin_addr.s_addr = it->ip;
+    
+         sendto(sock,&reply_msg,sizeof(reply_msg),0,(sockaddr *)&peer_addr,sizeof(peer_addr));
+     }
+    
+ }
