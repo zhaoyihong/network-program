@@ -5,6 +5,7 @@
 	> Created Time: 2015年01月11日 星期日 16时52分59秒
  ************************************************************************/
 
+#include <stdio.h>
 #include<iostream>
 #include  <sys/socket.h>
 #include  <sys/types.h>
@@ -12,10 +13,11 @@
 #include  <stdlib.h>
 #include  <arpa/inet.h>
 #include    "pub.h"
-#include  <sys/epoll>
+#include  <sys/epoll.h>
 #include <string.h>
-
-
+#include  <errno.h>
+#include  <vector>
+#include  <signal.h>
 using namespace std;
 
 USER_LIST client_list;
@@ -28,16 +30,18 @@ void err_exit(const char *msg)
     exit(EXIT_FAILURE);
 }
 
-void do_someone_login();
-void do_someone_logout();
-void do_getlist();
-void do_chat();
+void chat_client(int sock,sockaddr_in* pserver_addr);
+void do_someone_login(MESSAGE &);
+void do_someone_logout(MESSAGE &);
+void do_getlist(int);
+void do_chat(MESSAGE &msg);   
 void parse_cmd(char *,int ,sockaddr_in *);
-void sendmsgto(int sock,char *peername,char *msg_line);
+bool sendmsgto(int sock,char *peername,char *msg_line);
 
 
 int main(void)
 {
+    signal(SIGINT,SIG_IGN);
     int sock;
     if((sock=socket(AF_INET,SOCK_DGRAM,0)) < 0 )
     {
@@ -55,7 +59,7 @@ int main(void)
    //     err_exit("connect");
    // }
 
-    chat_client(sock,&pserver_addr);
+    chat_client(sock,&server_addr);
 
     close(sock);
     return 0;
@@ -74,15 +78,16 @@ void chat_client(int sock,sockaddr_in* pserver_addr)
         memset(username,0,sizeof(username));
 
         printf("please input your name:");        
-        fflush(stdout);
+        fflush(stdout); //输出上面的语句
         scanf("%s",username);
-
+       // fflush(stdin); //处理scanf后面的回车符
+        getchar();
         strcpy(msg.body,username);
         msg.cmd = htonl(C2S_LOGIN);
         ret = sendto(sock,&msg,sizeof(msg),0,(struct sockaddr *)pserver_addr,sizeof(*pserver_addr));
         if(ret == -1)
         {
-            if(erron == EINTR)
+            if(errno == EINTR)
             {
                 continue;
             }
@@ -93,7 +98,7 @@ void chat_client(int sock,sockaddr_in* pserver_addr)
         ret = recvfrom(sock,&msg,sizeof(msg),0,NULL,NULL);
         if(ret == -1)
         {
-             if(erron == EINTR)
+             if(errno == EINTR)
             {
                 continue;
             }
@@ -102,11 +107,11 @@ void chat_client(int sock,sockaddr_in* pserver_addr)
     
 
         int cmd = ntohl(msg.cmd);
-
         switch(cmd)
         {
             case S2C_LOGIN_OK:
-                //登录成功 break循环        
+                //登录成功 break循环 
+                printf("login success!\n");
                 break;
             case S2C_ALREADY_LOGINED:
                 //已经登录了,换个名字
@@ -115,27 +120,31 @@ void chat_client(int sock,sockaddr_in* pserver_addr)
             default:
                 break;
         }
+        break;
     }
 
     //接收在线人数信息
     int count;
-    ret = recvfrom(sock,&count,sizeof(count),NULL,NULL);
+    ret = recvfrom(sock,&count,sizeof(count),0,NULL,NULL);
     printf("has %d users logined server!\n",ntohl(count));
-    
-    for(int i =0 ;i < count ; ++i)
+   
+    int ncount = ntohl(count);
+    for(int i =0 ;i < ncount ; ++i)
     {
         ret = recvfrom(sock,&user_info,sizeof(user_info),0,NULL,NULL);
         if(ret == -1)
         {
             if(errno == EINTR)
             {
-                coutinue;
+                continue;
             }
             err_exit("recvfrom");
         }
-        
-        printf("%d,%s <--> %s:%d"\n,\
-                i,user_info.username,inet_ntoa(user_info.ip),ntos(user_info.port));
+       
+        in_addr tmp;
+        tmp.s_addr = user_info.ip;
+        printf("%d,%s<-->%s:%d\n",\
+               i,user_info.username,inet_ntoa(tmp),ntohs(user_info.port));
         client_list.push_back(user_info);
     }
 
@@ -144,6 +153,7 @@ void chat_client(int sock,sockaddr_in* pserver_addr)
    printf("list\n");
    printf("exit\n");
    printf("\n");
+
 
    //IO复用
 
@@ -155,7 +165,7 @@ void chat_client(int sock,sockaddr_in* pserver_addr)
    }
 
    ev.data.fd = STDIN_FILENO;
-   ev.events = EPOLLN | EPOLLET;
+   ev.events = EPOLLIN | EPOLLET;
    if(epoll_ctl(epfd,EPOLL_CTL_ADD,ev.data.fd,&ev) < 0)
    {
        err_exit("epoll_ctl");
@@ -187,87 +197,145 @@ void chat_client(int sock,sockaddr_in* pserver_addr)
 
        for(int i = 0; i< nready; ++i)
        {
-           //如果是由网络接收的
-           if(events[i].data.fd == sock)
-           {
-               sockaddr_in peer_addr;
-               socklen_t peer_len = sizeof(peer_addr);
-               recvfrom(sock,&msg,sizeof(msg),0,(sockaddr *)&peer_addr,&peer_len);
-               int cmd = ntohl(msg.cmd);
-               switch ( cmd )
-               {
-                   case S2C_SOMEONE_LOGIN :
-                        do_someone_login();
-                         break;
-                   case S2C_SOMEONE_LOGOUT :
-                       do_someone_logout();
-                       break;   
-                   case S2C_ONLIE_USER :
-                       do_getlist();
-                       break;   
-                   case C2C_CHAT :
-                       do_chat();
-                       break;   
-                   default :
-                       break;
-               }
-           }
 
-           //如果是由设备输入的
-           if(events[i].data.fd == STDIN_FILENO)
+           if(events[i].events & EPOLLIN)
            {
-                char cmd_line[100] = {0};
-                if(fgets(cmd_line,sizeof(cmd),stdin) == NULL)
-                {
-                    //终止输入 退出客户端
-                    break;
-                }
-            
-               if(cmd_line[0] == '\n')
+               //如果是由网络接收的
+               if(events[i].data.fd == sock)
                {
-                    continue;
+                   sockaddr_in peer_addr;
+                   socklen_t peer_len = sizeof(peer_addr);
+                   recvfrom(sock,&msg,sizeof(msg),0,(sockaddr *)&peer_addr,&peer_len);
+                   int cmd = ntohl(msg.cmd);
+                   switch ( cmd )
+                   {
+                       case S2C_SOMEONE_LOGIN :
+                            do_someone_login(msg);
+                             break;
+                       case S2C_SOMEONE_LOGOUT :
+                           do_someone_logout(msg);
+                           break;   
+                       case S2C_ONLIE_USER :
+                           do_getlist(sock);
+                           break;   
+                       case C2C_CHAT :
+                           do_chat(msg);
+                           break;   
+                       default :
+                           break;
+                   }
                }
 
-               cmd[strlen(cmd_line)-1] = '\0';
-               parse_cmd(cmd_line,sock,pserver_addr);
+               //如果是由设备输入的
+               if(events[i].data.fd == STDIN_FILENO)
+               {
+                    char cmd_line[100] = {0};
+                    if(fgets(cmd_line,sizeof(cmd_line),stdin) == NULL)
+                    {
+                        //终止输入 退出客户端
+                        break;
+                    } 
+                  
+                   if(cmd_line[0] == '\n')
+                   {
+                        continue;
+                   }
+
+                   cmd_line[strlen(cmd_line)-1] = '\0';
+                   
+                   parse_cmd(cmd_line,sock,pserver_addr);
+               }
            }
        }
    }
     
-   
-   //登出
-   
-
+  
+    //登出
+    memset(&msg,0,sizeof(msg)); 
+    msg.cmd = htonl(C2S_LOGOUT);
+    strcpy(msg.body,username);  
+    sendto(sock,&msg,sizeof(msg),0,(sockaddr *)pserver_addr,sizeof(*pserver_addr));
+    printf("user %s has logout server!\n",username);
 }
 
 
-void do_someone_login();
+void do_someone_login(MESSAGE &msg)
+{
+    USER_INFO *user_info = (USER_INFO *)msg.body; 
+    in_addr tmp;
+    tmp.s_addr = user_info->ip;
+    printf("%s<-->%s:%d has logined server!\n",user_info->username,inet_ntoa(tmp),ntohs(user_info->port));
+    client_list.push_back(*user_info);
+}
 
-void do_someone_logout();
+void do_someone_logout(MESSAGE &msg)
+{
+    USER_LIST::iterator it;
+    for(it = client_list.begin();it != client_list.end(); ++it)
+    {
+        if(strcmp(it->username , msg.body) == 0)
+        {
+            break;
+        }
+    }
 
-void do_getlist();
+    if(it != client_list.end())
+    {
+        client_list.erase(it);
+    }
 
-void do_chat();
+    printf("user %s has logined out!\n",msg.body);
+
+}
+
+void do_getlist(int sock)
+{
+    int count;
+    recvfrom(sock,&count,sizeof(count),0,NULL,NULL);
+    printf("has %d users logined server!\n",ntohl(count));
+
+    client_list.clear();
+
+    int n = ntohl(count);
+    for(int i = 0; i < n ;++i)
+    {
+        USER_INFO user_info;
+        recvfrom(sock,&user_info,sizeof(user_info),0,NULL,NULL);
+        client_list.push_back(user_info);
+        in_addr tmp;
+        tmp.s_addr =  user_info.ip;
+        printf("%s<-->%s:%d\n",user_info.username,inet_ntoa(tmp),ntohs(user_info.port));
+    }
+
+}
+
+void do_chat(MESSAGE &msg)
+{
+    CHAT_MSG *p_chat = (CHAT_MSG *)msg.body;
+    printf("from user %s:%s\n",p_chat->username,p_chat->msg);
+}
+
 
 void parse_cmd(char *cmd_line,int sock,sockaddr_in *pserver_addr)
 {
     char cmd[10] = {0};
-    char *p = strchr(cmdline,' ');
+    char *p = strchr(cmd_line,' ');
     if(p != NULL)
     {
         *p = '\0';
     }
-    
-    strcpy(cmd,cmdline);
+   
+    strcpy(cmd,cmd_line);
     if(strcmp(cmd,"exit") == 0)
     {
         //登出
         MESSAGE msg;
+        memset(&msg,0,sizeof(msg));
         msg.cmd = htonl(C2S_LOGOUT);
-        
+        strcpy(msg.body,username);
         sendto(sock,&msg,sizeof(msg),0,(sockaddr *)pserver_addr,sizeof(*pserver_addr));
-        exit(EXIT_FAILURE);
         printf("user %s has logout server!\n",username);
+        exit(EXIT_FAILURE);
 
     }
     else if(strcmp(cmd,"send") == 0)
@@ -289,7 +357,7 @@ void parse_cmd(char *cmd_line,int sock,sockaddr_in *pserver_addr)
             return;
         }
 
-        *p2 = '\0'
+        *p2 = '\0';
         strcpy(peername,p);
         
         while(*p2++ == ' ') {}
@@ -300,7 +368,7 @@ void parse_cmd(char *cmd_line,int sock,sockaddr_in *pserver_addr)
     {
         MESSAGE msg;
         memset(&msg,0,sizeof(msg));
-        msg.cmd = htonl(CS2_ONLINE_USER);
+        msg.cmd = htonl(C2S_ONLINE_USER);
         if(sendto(sock,&msg,sizeof(msg),0,(sockaddr *)pserver_addr,sizeof(*pserver_addr)) < 0 )
         {
             err_exit("sendto");
@@ -342,7 +410,6 @@ bool sendmsgto(int sock,char *peername,char *msg_line)
         return false;
     }
 
-
     sockaddr_in peer_addr ;
     memset(&peer_addr,0,sizeof(peer_addr));
     peer_addr.sin_family  = AF_INET;
@@ -350,7 +417,7 @@ bool sendmsgto(int sock,char *peername,char *msg_line)
     peer_addr.sin_addr.s_addr = it->ip;
 
     MESSAGE msg;
-    msg.cmd = C2C_CHAT;
+    msg.cmd = htonl(C2C_CHAT);
     CHAT_MSG chat_msg;
     memset(&chat_msg,0,sizeof(chat_msg));
     strcpy(chat_msg.username,username);
@@ -362,5 +429,5 @@ bool sendmsgto(int sock,char *peername,char *msg_line)
     tmp.s_addr = it->ip;
     printf("sending message %s to user %s\n",msg_line,inet_ntoa(tmp));
 
-    sendto(sock,&msg,szieof(msg),0,(struct sockaddr *)&peer_addr,sizeof(peer_addr));
+    sendto(sock,&msg,sizeof(msg),0,(struct sockaddr *)&peer_addr,sizeof(peer_addr));
 }
