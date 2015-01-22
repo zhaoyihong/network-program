@@ -15,6 +15,8 @@
 #include  <arpa/inet.h>
 #include  <signal.h>
 #include "readline.h"
+#include  <vector>
+#include  <sys/epoll.h>
 
 using namespace std;
 
@@ -50,6 +52,114 @@ int main()
 
 void client_service(int conn)
 {
+    int epfd = epoll_create1(EPOLL_CLOEXEC); 
+    if(epfd < 0)
+    {
+        err_exit("epoll_create1");
+    }
+
+    struct epoll_event ev;
+    int stdinfd = fileno(stdin);
+    memset(&ev,0,sizeof(ev));
+    ev.data.fd = stdinfd;
+    ev.events = EPOLLIN || EPOLLET;
+    
+    int ret;
+    ret = epoll_ctl(epfd,EPOLL_CTL_ADD,stdinfd,&ev);
+    if(ret < 0)
+    {
+        err_exit("epoll_ctl");
+    }
+
+    ev.data.fd = conn;
+    ret = epoll_ctl(epfd,EPOLL_CTL_ADD,conn,&ev);
+    if(ret < 0)
+    {
+        err_exit("epoll_ctl");
+    }
+
+    vector<epoll_event> events(16);
+    bool stdin_close = false;
+    while(1)
+    {
+        ret = epoll_wait(epfd,&(*events.begin()),events.size(),-1);
+        if(ret == -1)
+        {
+            err_exit("epoll_wait");
+        }
+        else if(ret == 0)
+        {
+            continue;
+        }
+        else if(ret == (int)events.size())
+        {
+            events.resize(2*ret);
+        }
+
+        for(int i=0;i<ret;++i)
+        {
+            if(events[i].events & EPOLLIN)
+            {
+                if(events[i].data.fd == stdinfd)
+                {
+                    char buf[1024] = {0};
+                    
+                    //标准输入终止
+                    if(NULL == fgets(buf,(int)(sizeof(buf)),stdin))
+                    {   
+                        stdin_close = true;  
+                        shutdown(conn,SHUT_WR);
+                        ret = epoll_ctl(epfd,EPOLL_CTL_DEL,stdinfd,NULL);
+                        if(ret == -1)
+                        {
+                            err_exit("epoll_ctl");
+                        }
+                        continue;    
+                    }
+                    else
+                    {
+                        ret = writen(conn,buf,strlen(buf));
+                        if(ret != (int)strlen(buf))
+                        {
+                            err_exit("writen");
+                        }
+                    }
+
+                }
+                else if(events[i].data.fd == conn)
+                {
+                    char recvbuf[1024] = {0};
+                    ret = readline(conn,recvbuf,sizeof(recvbuf));
+                    if(ret == 0)
+                    {
+                        if(stdin_close)
+                        {
+                            //客户端正常终止 (关闭stdin然后接收完数据)
+                            printf("client close\n");
+                            return;
+                        }
+                        else
+                        {
+                            //服务器提前终止(服务器主动断开连接)
+                            err_exit("server terminated prematurely");
+                        }
+
+                    }
+                    else 
+                    {
+                        printf("recv:%s",recvbuf);
+                    }
+                }
+            }
+        }
+    }
+
+
+}
+
+/*
+void client_service(int conn)
+{
     char sendbuf[1024] = {0};
     char recvbuf[1024] ={0};
     int ret;
@@ -71,3 +181,4 @@ void client_service(int conn)
     }
 
 }
+*/
