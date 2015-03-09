@@ -68,7 +68,10 @@ int main()
     {
         err_exit("listen");
     }
-  
+ 
+    //设置为非阻塞
+    active_nonblock(listenfd);
+
     struct epoll_event ev; 
     int epfd = epoll_create(EPOLL_CLOEXEC);
     ev.data.fd = listenfd;
@@ -95,6 +98,7 @@ int main()
             err_exit("epoll_wait");
         }
 
+        //超时
         if(0 == nready)
         {
             continue;
@@ -112,19 +116,27 @@ int main()
                 struct sockaddr_in peer_addr;
                 socklen_t peer_len = sizeof(peer_addr);
                 int conn = accept(listenfd,(sockaddr *)&peer_addr,&peer_len);
-                if(-1 == conn)
+                if(-1 == conn )
                 {
-                    err_exit("accept");
+                    //排除信号中断,非阻塞模式的EAGAIN,连接中断,协议错误等原因. 特别是要注意EAGAIN
+                    if(errno != EINTR && errno!=EAGAIN && errno!=ECONNABORTED && errno!=EPROTO)
+                    {
+                        err_exit("accept");
+                    }
+
+                    continue;
                 }
                 printf("peer addr%s,port:%d\n",inet_ntoa(peer_addr.sin_addr),ntohs(peer_addr.sin_port));
                 //保存已连接的套接字
                 clients.push_back(conn);
-                int flag = fcntl(conn,F_GETFL,NULL);
-                fcntl(conn,F_SETFL,flag|O_NONBLOCK);
                 
+                //将套接字设置为非阻塞
+                active_nonblock(conn);
+
                 ev.data.fd = conn;
                 ev.events = EPOLLIN | EPOLLET;
                 epoll_ctl(epfd,EPOLL_CTL_ADD,conn,&ev); //添加到监听时间中
+
                 count ++;
             }
             else if(events[i].events & EPOLLIN)
@@ -136,8 +148,10 @@ int main()
                 }
                 
                 char recvbuf[1024] = {0};
+                int ret;
+                ret = readline(conn,recvbuf,1024);
                 
-                int ret = readline(conn,recvbuf,1024);
+                
                 if(-1 == ret)
                 {
                     err_exit("readline");
@@ -154,8 +168,13 @@ int main()
                 else
                 {
                     cout << "recv:" << recvbuf;
-                    writen(conn,recvbuf,strlen(recvbuf));
+                    ret = writen(conn,recvbuf,strlen(recvbuf));
+                    if(-1 == ret)
+                    {
+                        err_exit("writen");
+                    }
                 }
+
             }
         }
     }

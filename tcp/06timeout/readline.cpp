@@ -11,7 +11,6 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include  <fcntl.h>
 
 ssize_t recv_peek(int sockfd,void *buf,size_t len);
 int writen(int fd,void *buf,size_t len);
@@ -42,12 +41,10 @@ ssize_t readline(int sockfd,void *buf,size_t maxlen)
             if('\n' == pbuf[i])
             {
                 nret = readn(sockfd,pbuf,i+1);
-                /*
                 if(nret != i+1)
                 {
                     exit(EXIT_FAILURE);
                 }
-                */
                 return nret;
             }
         }
@@ -87,14 +84,8 @@ int readn(int fd,void *buf,size_t len)
             {
                 continue;
             }
-           
-            if(errno == EAGAIN)
-            {
-                break;
-            }
-
-            //err_exit("read");
-            return -1;
+            
+            err_exit("read");
         }
     
         if(ret == 0)
@@ -125,14 +116,7 @@ int writen(int fd,void *buf,size_t len)
             {
                 continue;
             }
-            
-            if(errno == EAGAIN)
-            {
-                break;
-            }
-
-            //err_exit("write");
-            return -1;
+            err_exit("write");
         }
         
         nleft -= ret;
@@ -149,12 +133,10 @@ ssize_t recv_peek(int sockfd,void *buf,size_t len)
         //使用MSG_PEEK来读取，但读取的内容不从缓冲区中去除
         int ret = recv(sockfd,buf,len,MSG_PEEK);
         
-        if(ret == -1)
+        if(ret == -1 && errno==EINTR)
         {
-            if(errno == EINTR || errno == EAGAIN)
-                continue;
-        }  
-
+            continue;
+        }   
         return ret;
     }
 }
@@ -167,33 +149,7 @@ void err_exit(const char *msg)
 }
 
 
-void active_nonblock(int fd)
-{
-        int flag = fcntl(fd,F_GETFL,NULL);
-        if(-1 == flag)
-        {
-            err_exit("fcntl");
-        }
-     
-        flag |= O_NONBLOCK;
-        if(fcntl(fd,F_SETFL,flag) < 0)
-        {
-            err_exit("fcntl");
-        }
-}
 
 
-void deactive_nonblock(int fd)
-{
-        int flag = fcntl(fd,F_GETFL,NULL);
-        if(-1 == flag)
-        {
-            err_exit("fcntl");
-        }
-     
-        flag &= ~O_NONBLOCK;
-        if(fcntl(fd,F_SETFL,flag) < 0)
-        {
-            err_exit("fcntl");
-        }
-}
+
+
