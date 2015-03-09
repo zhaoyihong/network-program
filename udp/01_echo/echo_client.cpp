@@ -37,9 +37,12 @@ int main()
     memset(&ser_addr,0,sizeof(ser_addr));
     ser_addr.sin_family = AF_INET;
     ser_addr.sin_port = htons(5188);
-    ser_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    ser_addr.sin_addr.s_addr = inet_addr("120.24.169.130");
     socklen_t ser_len = sizeof(ser_addr);
 
+    //只有connect之后才能返回异步错误
+    //UDP connect没有三次握手,仅仅只是维护了一个信息
+    //connect 只能发送给对等方
     if(connect(sock,(struct sockaddr *)&ser_addr,sizeof(ser_addr)) < 0)
     {
         err_exit("connect");
